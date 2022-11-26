@@ -2,9 +2,14 @@
 # Author: Eddie Lee, edlee@csh.ac.at
 from .measures import *
 from coniii.models import Ising
+from toolbox.EntropyEstimates import meanAndStdevEntropyNem as NSB_entropy
+
 
 
 def test_constraint(G):
+    """For validating custom local constraint and constraint calculation with
+    networkx code.
+    """
     # calculate local constraint for every node
     lc = {}
     for node in G.nodes():
@@ -28,7 +33,18 @@ def test_constraint(G):
 
 def test_hairy_triangle_and_point(J_scale=.5):
     """Setup a model instance with triangle and outgoing nodes and
-    a single independent point."""
+    a single independent point.
+
+    Parameters
+    ----------
+    J_scale : float, .5
+
+    Returns
+    -------
+    tuple
+    float
+    tuple
+    """
     n = 7
     
     model = Ising(n)
@@ -51,9 +67,12 @@ def test_hairy_triangle_and_point(J_scale=.5):
                                    iprint=False)
     entropyEstimator.estimate_entropy()
 
+    S_naive = entropyEstimator.naive_entropy(10_000)
+    counts = np.unique(entropyEstimator.model.sample, axis=0, return_counts=True)[1]
+
     return (entropyEstimator.entropy(),
-            entropyEstimator.naive_entropy(100_000),
-            entropyEstimator.naive_entropy(10_000))
+            S_naive,
+            NSB_entropy(counts, bits=True, K=2**model.n))
 
 def test_two_hairy_triangles(J_scale=.5):  
     """Setup a model instance with triangle and outgoing nodes."""
@@ -85,11 +104,14 @@ def test_two_hairy_triangles(J_scale=.5):
     entropyEstimator.estimate_entropy()
     entropyEstimator.entropy()
 
-    return (entropyEstimator.entropy(),
-            entropyEstimator.naive_entropy(10_000),
-            entropyEstimator.naive_entropy(100_000))
+    S_naive = entropyEstimator.naive_entropy(10_000)
+    counts = np.unique(entropyEstimator.model.sample, axis=0, return_counts=True)[1]
 
-def test_n_hairy_triangles(n_tri, J_scale=.5, chain=False):  
+    return (entropyEstimator.entropy(),
+            S_naive,
+            NSB_entropy(counts, bits=True, K=2**model.n))
+
+def test_n_hairy_triangles(n_tri, J_scale=.5, chain=False, **treeEnt_kw):  
     """Setup a model instance with triangle and outgoing nodes."""
     assert n_tri>=1
     n = n_tri * 6
@@ -117,19 +139,19 @@ def test_n_hairy_triangles(n_tri, J_scale=.5, chain=False):
     adj[np.where(Jmat)] = 1
     
     entropyEstimator = TreeEntropy(adj, model,
-                                   sample_size=10_000,
-                                   cond_sample_size=1_000,
                                    iprint=False,
-                                   mx_cluster_size=3)
+                                   mx_cluster_size=3,
+                                   **treeEnt_kw)
     
     entropyEstimator.estimate_entropy()
     entropyEstimator.entropy()
 
+    S_naive = entropyEstimator.naive_entropy(10_000)
+    counts = np.unique(entropyEstimator.model.sample, axis=0, return_counts=True)[1]
+
     return (entropyEstimator.entropy(),
-            entropyEstimator.naive_entropy(10_000),
-            entropyEstimator.naive_entropy(100_000))
-
-
+            S_naive,
+            NSB_entropy(counts, bits=True, K=2**model.n))
 
 if __name__=='__main__':
     for seed in range(20):

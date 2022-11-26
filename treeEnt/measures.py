@@ -5,7 +5,7 @@
 # ====================================================================================== #
 import numpy as np
 import networkx as nx
-from toolbox.EntropyEstimates import meanAndStdevEntropyNem
+from toolbox.EntropyEstimates import meanAndStdevEntropyNem as _NSB_entropy
 from warnings import warn
 from threadpoolctl import threadpool_limits
 from multiprocess import Pool
@@ -13,23 +13,24 @@ from multiprocess import Pool
 
 class TreeEntropy():
     def __init__(self, adj, model,
-                 sample_size=40_000,
+                 sample_size=10_000,
                  cond_sample_size=10_000,
                  mx_cluster_size=14,
                  iprint=True):
-        """Use conditioning on tree approximation of graph in order to approximate
-        the entropy of a sparse Ising model.
+        """Use factorization of tree coarse-graining of graph to approximate the
+        entropy of a sparse Ising model.
 
         Parameters
         ----------
         adj : ndarray
             Adjacency graph ignoring diagonal.
         model : coniii.Model
-        sample_size : int, 40_000
+        sample_size : int, 10_000
             MC sample size used to estimate probability distribution over which to
             weight conditional entropies.
         cond_sample_size : int, 10_000
-            MC sample size once having conditioned on upper branch to sample from leaf.
+            MC sample size once having conditioned on upper branch to sample from
+            leaf.
         mx_cluster_size : int, 14
         iprint : bool, True
         """
@@ -49,6 +50,8 @@ class TreeEntropy():
             print()
     
     def setup_graph(self, mx_cluster_size):
+        """Wrapper for setting up self.G.
+        """
         self.G = nx.Graph(self.adj)
         split_output = self.split_graph(self.G, True, mx_cluster_size)
         self.subgraphs, (self.split_nodes, self.nonsplit_nodes) = split_output
@@ -89,7 +92,7 @@ class TreeEntropy():
 
         try:
             if nx.find_cycle(contracted_G):
-                raise Exception("Cycles found.")
+                raise Exception("Cycles found in contracted graph.")
         except nx.NetworkXNoCycle:
             pass
 
@@ -220,7 +223,7 @@ class TreeEntropy():
         states_hold, p_hold = np.unique(X[:,ix_hold], axis=0, return_counts=True)
         p_hold = p_hold / p_hold.sum()
         n_hold = len(ix_hold)
-        S_hold = self.NSB_estimate(X[:,ix_hold]) if not fast else self.naive_estimate(X[:,ix_hold])
+        S_hold = NSB_estimate(X[:,ix_hold]) if not fast else self.naive_estimate(X[:,ix_hold])
         
         if not force:
             assert p_hold.size < 1e4, f"Too many possible states (K={p_hold.size}). This will take too long."
@@ -259,11 +262,10 @@ class TreeEntropy():
             for i, ix in enumerate(ix_free):
                 #n_free = len(ix)
                 #p_free = np.zeros(2**n_free)
-                S_est = (self.NSB_estimate(hold_sample[:,ix]) if not fast
+                S_est = (NSB_estimate(hold_sample[:,ix]) if not fast
                                                               else self.naive_estimate(hold_sample[:,ix]))
 
                 # calculate contribution to conditioned entropy, rror, and variance term without weights
-                #S_free[i] += S_est[0], S_est[1], S_est[0]**2
                 S_free[i] += S_est[0] * p, S_est[1] * p, S_est[0]**2 * p
             return S_free 
         
@@ -367,7 +369,7 @@ class TreeEntropy():
             S_root = S_root_ 
         elif len(contracted_G)==1 and S_root_ is None:
             ix_hold = list(contracted_G.nodes)
-            S_root = self.NSB_estimate(sample[:,ix_hold])
+            S_root = NSB_estimate(sample[:,ix_hold])
             #counts = np.unique(sample[:,ix_hold], axis=0, return_counts=True)[1]
             #p = counts / counts.sum()
             #S_root = -(p*np.log(p)).sum()
@@ -376,11 +378,6 @@ class TreeEntropy():
 
         return S_root, S_leaves
     
-    def NSB_estimate(self, X):
-        assert X.ndim==2
-        counts = np.unique(X, axis=0, return_counts=True)[1]
-        return meanAndStdevEntropyNem(counts, bits=True, K=2**X.shape[1])
-
     def naive_estimate(self, X):
         """Naive entropy estimate from counting.
 
@@ -466,8 +463,10 @@ class TreeEntropy():
         S += sum([sum(list(zip(*list(i.values())))[0]) for i in self.S_leaves if len(i)])
         # sum over the NSB estimate errors for each leaf then sum over leaves
         nsb_err += sum([sum(np.array(list(zip(*list(i.values())))[1])**2) for i in self.S_leaves if len(i)])
-        # sum over std estimated from conditioned sets of spins, remember that we have already saved the
-        # squared and weighted values of the entropies from the leaves
+
+        # sum over std estimated from conditioned sets of spins; we have already saved the
+        # squared and weighted values of the entropies from the leaves so we must
+        # subtract the squared means
         std_err = sum([sum([j[2]-j[0]**2 for j in i.values()])
                             for i in self.S_leaves if len(i)]) / self.sample_size
         
@@ -531,3 +530,29 @@ class TreeEntropy():
                 c[node] = np.nan
         return c
 #end TreeEntropy
+
+
+
+def NSB_estimate(X):
+    """Wrapper for NSB estimator.
+
+    Parameters
+    ----------
+    X : ndarray
+        Shape is (no. of data points, no. of spins).
+
+    Returns
+    -------
+    float
+        Entropy estimate in bits.
+    float
+        Error.
+    """
+    assert X.ndim==2
+    counts = np.unique(X, axis=0, return_counts=True)[1]
+
+    # assuming sample space is binary
+    # this causes an exception case of two observed states so skip K argument in that case
+    if counts.size==2:
+        return _NSB_entropy(counts, bits=True)
+    return _NSB_entropy(counts, bits=True, K=2**X.shape[1])
