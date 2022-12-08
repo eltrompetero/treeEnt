@@ -47,8 +47,6 @@ kwargs = {'name':'treeEnt',
                               'scipy',
                               'matplotlib',
                               'numpy',
-                              'numba',
-                              'mpmath',
                               'dill'],
           'include_package_data':True,  # see MANIFEST.in
           'py_modules':['treeEnt.measures',

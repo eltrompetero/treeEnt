@@ -5,10 +5,11 @@
 # ====================================================================================== #
 import numpy as np
 import networkx as nx
-from toolbox.EntropyEstimates import meanAndStdevEntropyNem as _NSB_entropy
+from .NSB_toolbox import meanAndStdevEntropyNem as _NSB_entropy
 from warnings import warn
 from threadpoolctl import threadpool_limits
 from multiprocess import Pool
+import pickle
 
 
 class TreeEntropy():
@@ -127,12 +128,11 @@ class TreeEntropy():
         comp_sizes = []
 
         # try removing node with smallest constraint at a time til the remaining
-        # graph is below desired size
-        # smaller constraint means structural hole
-        mx_size = 1000
+        # graph is below desired size (smaller constraint means structural hole)
+        mx_size = np.inf  # some arbitrarily large size
         mx_subgraph_size = max([len(g) for g in nx.connected_components(G)])
         largest_subgraph_growing = False
-        while mx_size > mx_cluster_size:
+        while mx_size > mx_cluster_size or largest_subgraph_growing:
             # remove one node at a time from the graph using min constraint heuristic
             cons = cls.constraint(G_)
             toremove = min(cons, key=cons.get)
@@ -147,8 +147,7 @@ class TreeEntropy():
             n_comps.append(counter)
             mx_size = max(comp_sizes[-1])
             
-            # compute subgraphs induced by this removal step to check how graph has
-            # changed
+            # compute subgraphs induced by this removal step to check how graph has changed
             # consider induced subgraphs in the remaining subgraph G_
             nonsplit_nodes = []
             for g in nx.connected_components(G_):
@@ -264,6 +263,10 @@ class TreeEntropy():
                 #p_free = np.zeros(2**n_free)
                 S_est = (NSB_estimate(hold_sample[:,ix]) if not fast
                                                               else self.naive_estimate(hold_sample[:,ix]))
+
+                if S_est[0].imag!=0 or S_est[1].imag!=0:
+                    with open('temp.p', 'wb') as f:
+                        pickle.dump({'samp':hold_sample[:,ix]}, f)
 
                 # calculate contribution to conditioned entropy, rror, and variance term without weights
                 S_free[i] += S_est[0] * p, S_est[1] * p, S_est[0]**2 * p
@@ -390,12 +393,14 @@ class TreeEntropy():
         float
             Entropy in bits.
         float
-            Error in bits (currently not implemented).
+            Standard error in bits.
         """
         assert X.ndim==2
         counts = np.unique(X, axis=0, return_counts=True)[1]
         p = counts / counts.sum()
-        return -p.dot(np.log2(p)), 0.
+        S = -p.dot(np.log2(p))
+        S2 = p.dot(np.log2(p)**2)
+        return S, np.sqrt((S2-S**2)/X.shape[0])
 
     def estimate_entropy(self, 
                          **conditional_entropy_kw):
@@ -456,7 +461,7 @@ class TreeEntropy():
         
         S = 0
         nsb_err = 0
-        std_err = 0
+        var_err = 0
         for s1 in self.S_root:
             S += s1[0]
             nsb_err += s1[1]**2
@@ -464,16 +469,17 @@ class TreeEntropy():
         # sum over the NSB estimate errors for each leaf then sum over leaves
         nsb_err += sum([sum(np.array(list(zip(*list(i.values())))[1])**2) for i in self.S_leaves if len(i)])
 
-        # sum over std estimated from conditioned sets of spins; we have already saved the
+        # sum over varance estimated from conditioned sets of spins; we have already saved the
         # squared and weighted values of the entropies from the leaves so we must
         # subtract the squared means
-        std_err = sum([sum([j[2]-j[0]**2 for j in i.values()])
+        var_err = sum([sum([j[2]-j[0]**2 for j in i.values()])
                             for i in self.S_leaves if len(i)]) / self.sample_size
         
-        if std_err<0 and np.isclose(std_err, 0):
-            std_err = 0
+        # numerical precision errors sometimes lead to small negative values
+        if var_err<0 and np.isclose(var_err, 0):
+            var_err = 0
 
-        return S, np.sqrt(nsb_err + std_err)
+        return S, np.sqrt(nsb_err + var_err)
 
     def naive_entropy(self, sample_size=1_000_000, force_resample=False):
         """Estimate naive entropy.
@@ -554,5 +560,8 @@ def NSB_estimate(X):
     # assuming sample space is binary
     # this causes an exception case of two observed states so skip K argument in that case
     if counts.size==2:
-        return _NSB_entropy(counts, bits=True)
-    return _NSB_entropy(counts, bits=True, K=2**X.shape[1])
+        estimate = _NSB_entropy(counts, bits=True)
+    estimate = _NSB_entropy(counts, bits=True, K=2**X.shape[1])
+
+    return estimate[0], estimate[1]
+
