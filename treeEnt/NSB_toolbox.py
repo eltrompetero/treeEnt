@@ -1,4 +1,4 @@
-# EntropyEstimates.py
+# NSB_toolbox.py
 #
 # Bryan Daniels
 # Modified by Eddie Lee
@@ -10,6 +10,7 @@ from scipy.integrate import quad
 import numpy as np
 from numpy.lib.scimath import sqrt
 from scipy.optimize import fmin, brentq
+import warnings
 
 Phi = lambda n,z: polygamma(n-1,z)
 deltaPhi = lambda n,z1,z2: Phi(n,z1) - Phi(n,z2)
@@ -46,7 +47,7 @@ def meanEntropy(nVec, beta=1, m=None):
                 * deltaPhi(1,beta+1,N+beta*m+1)
     
 # 10.25.2010
-def s2s0Slow(nVec,beta=1):
+def s2s0Slow(nVec, beta=1):
     """
     Assumes nVec lists all possibilities ( len(nVec) = m )
     
@@ -73,7 +74,7 @@ def s2s0Slow(nVec,beta=1):
 
 # 10.25.2010 version made to match with NemShaBia08
 # (turns out to be identical)
-def s2s0NemBetaOld(nVec,beta=1):
+def s2s0NemBetaOld(nVec, beta=1):
     """
     Assumes nVec lists all possibilities ( len(nVec) = m )
     
@@ -105,7 +106,7 @@ def s2s0NemBetaOld(nVec,beta=1):
 # 10.25.2010 version made to match with NemShaBia08
 # (turns out to be identical)
 # 6.21.2011 (turns out to be identical?)
-def s2s0NemBetaNew(nVec,beta=1):
+def s2s0NemBetaNew(nVec, beta=1):
     """
     Assumes nVec lists all possibilities ( len(nVec) = m )
     
@@ -136,7 +137,7 @@ def s2s0NemBetaNew(nVec,beta=1):
 
 # 10.25.2010
 # 6.21.2011 fixed bugs
-def s2s0(nVec,beta=1,m=None,useLessMemory=False):
+def s2s0(nVec, beta=1, m=None, useLessMemory=False):
     """
     Assumes nVec lists all possibilities ( len(nVec) = m )
     
@@ -245,7 +246,12 @@ def betaFromXi(xi, K, xtol=1e-20, maxiter=10_000, beta_mn=0., beta_mx=100.):
     else:
         beta = brentq(lambda beta:(xiFromBeta(beta, K) - xi)/xi, beta_mn, beta_mx,
                       maxiter=maxiter, xtol=xtol)
-    if abs((xiFromBeta(beta,K) - xi)/xi) > 0.01:
+
+    if xi==0:
+        rel_err = abs(xiFromBeta(beta, K) - xi)
+    else:
+        rel_err = abs((xiFromBeta(beta, K) - xi)/xi)
+    if rel_err > 0.01:
         print("found beta =", beta)
         print("xi desired =", xi)
         print("xi found =", xiFromBeta(beta, K))
@@ -253,7 +259,7 @@ def betaFromXi(xi, K, xtol=1e-20, maxiter=10_000, beta_mn=0., beta_mx=100.):
     return beta
         
 def lnXiDistrib(xi, nVec, K=None):
-    """Assumes nVec lists all possibilities ( len(nVec) = m )
+    """Assumes nVec lists all possibilities ( len(nVec) = m ) if K is not given.
     """
     nVec = np.array(nVec)
     N = nVec.sum()
@@ -261,11 +267,11 @@ def lnXiDistrib(xi, nVec, K=None):
         K = nVec.size  # aka m
     beta = betaFromXi(xi, K)
     kappa = K*beta
-    #return gamma(kappa)/gamma(N+kappa)                         \
-    #     * np.prod( gamma(nVec+beta)/gamma(beta) )
-    #return exp( gammaln(kappa) - gammaln(N+kappa) )            \
-    #    * prod( exp( gammaln(nVec+beta) - gammaln(beta) ) )
-    return gammaln(kappa) - gammaln(N+kappa) + sum(gammaln(nVec+beta) - gammaln(beta))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = gammaln(kappa) - gammaln(N+kappa) + np.sum(gammaln(nVec+beta) - gammaln(beta))
+    return result
          
 def integrateOverXi(func, nVec,
                     maxScaledXi=0.9999,
@@ -299,11 +305,9 @@ def integrateOverXi(func, nVec,
         
         # 3.30.2011 use mx LnXi
         def fn(xi): 
-            #if xi < mx: return -lnXiDistrib(xi,nVec,K=K)
-            #else: return -lnXiDistrib(mx,nVec,K=K)
             if xi >= mx: return -lnXiDistrib(mx, nVec, K=K)
             elif xi <= mn: return -lnXiDistrib(mn, nVec, K=K) 
-            else: return -lnXiDistrib(xi, nVec, K=K)
+            return -lnXiDistrib(xi, nVec, K=K)
         xiMax = fmin(fn, (mx+mn)/2., maxiter=100, disp=verbose)[0]
         if xiMax > mx: xiMax = mx
         if xiMax < mn: xiMax = mn
@@ -324,13 +328,24 @@ def integrateOverXi(func, nVec,
     exp_const = np.nanmax([(lnConst + lnXiDistrib(xi, nVec, K=K)) for xi in np.linspace(mn, mx, 100)])
     result = quad(lambda xi: integrand(xi, -exp_const), mn, mx,
                   limit=100,
-                  epsabs=1e-12)
+                  epsabs=1e-10)
     # re-introduce missing factor
     result = result[0]*np.exp(exp_const), result[1]*np.exp(exp_const)
     return result
     
 def meanEntropyNem(nVec, K=None, verbose=False, **kwargs):
-    """Flat prior on beta.
+    """Mean entropy estimate using flat prior on beta.
+
+    Parameters
+    ----------
+    nVec : ndarray
+    K : int, None
+    verbose : bool, False
+    **kwargs
+
+    Returns
+    -------
+    float
     """
     nVec = np.array(nVec)
     N = nVec.sum()
@@ -346,9 +361,19 @@ def meanEntropyNem(nVec, K=None, verbose=False, **kwargs):
         print("s1s0 =", num/den)
     return num/den
     
-def s2s0Nem(nVec,K=None,verbose=False,**kwargs):
-    """
-    Flat prior on beta.
+def s2s0Nem(nVec, K=None, verbose=False, **kwargs):
+    """Using flat prior on beta.
+
+    Parameters
+    ----------
+    nVec : ndarray
+    K : int, None
+    verbose : bool, False
+    **kwargs
+
+    Returns
+    -------
+    float
     """
     nVec = np.array(nVec)
     N = sum(nVec)
@@ -356,28 +381,25 @@ def s2s0Nem(nVec,K=None,verbose=False,**kwargs):
         K = len(nVec) # aka m
     s2s0Func =                                                  \
         lambda xi: s2s0(nVec,beta=betaFromXi(xi,K),m=K)
-    numInt = integrateOverXi(s2s0Func,nVec,K=K,                 \
-        verbose=verbose,**kwargs)
-    denInt = integrateOverXi(lambda x:1,nVec,K=K,               \
-        verbose=verbose,**kwargs)
+    numInt = integrateOverXi(s2s0Func, nVec, K=K, verbose=verbose, **kwargs)
+    denInt = integrateOverXi(lambda x:1, nVec, K=K, verbose=verbose, **kwargs)
     num,den = numInt[0],denInt[0]
     if verbose:
-        print("num =",num,", den =",den)
-        print("numAbsErr =",numInt[1],", denAbsErr =",denInt[1])
+        print("num =", num, ",  den =", den)
+        print("numAbsErr =", numInt[1], ",  denAbsErr =", denInt[1])
         print("s2s0 =", num/den)
     return num/den
     
     
-# 3.29.2011
-def meanAndStdevEntropyNem(freqData,bits=True,**kwargs):
-    mean = meanEntropyNem(freqData,**kwargs)
-    s2s0 = s2s0Nem(freqData,**kwargs)
+def meanAndStdevEntropyNem(freqData, bits=True, **kwargs):
+    mean = meanEntropyNem(freqData, **kwargs)
+    s2s0 = s2s0Nem(freqData, **kwargs)
     stdev = sqrt(s2s0-mean*mean)
 
     # this is indicative of precision errors in the calculation of the mean or var
     if bits:
-        mean = nats2bits( mean )
-        stdev = nats2bits( stdev )
+        mean = nats2bits(mean)
+        stdev = nats2bits(stdev)
     return mean, stdev
     
 def varianceEntropyNem(nVec,**kwargs):
@@ -394,8 +416,16 @@ def varianceEntropyNem(nVec,**kwargs):
     den = integrateOverXi(lambda x:1,nVec,**kwargs)[0]
     return num/den
 
-# 3.29.2011
 def nats2bits(nats):
+    """
+    Parameters
+    ----------
+    nats : float
+
+    Returns
+    -------
+    float
+    """
     return nats / np.log(2)
 
 

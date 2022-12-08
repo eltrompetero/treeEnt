@@ -1,8 +1,7 @@
-# ====================================================================================== #
 # TreeEnt package.
 # 
 # Author : Eddie Lee, edlee@csh.ac.at
-# ====================================================================================== #
+
 import numpy as np
 import networkx as nx
 from .NSB_toolbox import meanAndStdevEntropyNem as _NSB_entropy

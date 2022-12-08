@@ -1,8 +1,9 @@
 # Testing
 # Author: Eddie Lee, edlee@csh.ac.at
+
 from .measures import *
 from coniii.models import Ising
-from toolbox.EntropyEstimates import meanAndStdevEntropyNem as NSB_entropy
+from .NSB_toolbox import meanAndStdevEntropyNem as NSB_entropy
 
 
 
