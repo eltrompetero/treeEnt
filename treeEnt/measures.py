@@ -131,7 +131,7 @@ class TreeEntropy():
         mx_size = np.inf  # some arbitrarily large size
         mx_subgraph_size = max([len(g) for g in nx.connected_components(G)])
         largest_subgraph_growing = False
-        while mx_size > mx_cluster_size or largest_subgraph_growing:
+        while mx_size > mx_cluster_size and not largest_subgraph_growing:
             # remove one node at a time from the graph using min constraint heuristic
             cons = cls.constraint(G_)
             toremove = min(cons, key=cons.get)
@@ -263,7 +263,7 @@ class TreeEntropy():
                 S_est = (NSB_estimate(hold_sample[:,ix]) if not fast
                                                               else self.naive_estimate(hold_sample[:,ix]))
 
-                if S_est[0].imag!=0 or S_est[1].imag!=0:
+                if S_est[0]>len(ix) or S_est[1]>len(ix):
                     with open('temp.p', 'wb') as f:
                         pickle.dump({'samp':hold_sample[:,ix]}, f)
 
@@ -561,6 +561,10 @@ def NSB_estimate(X):
     if counts.size==2:
         estimate = _NSB_entropy(counts, bits=True)
     estimate = _NSB_entropy(counts, bits=True, K=2**X.shape[1])
+
+    # in the case of numerical errors in the integration of the prior, we should not specify K
+    if estimate[0]>X.shape[1]:
+        estimate = _NSB_entropy(counts, bits=True)
 
     return estimate[0], estimate[1]
 

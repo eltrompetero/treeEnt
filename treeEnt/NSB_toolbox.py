@@ -138,61 +138,53 @@ def s2s0NemBetaNew(nVec, beta=1):
 # 10.25.2010
 # 6.21.2011 fixed bugs
 def s2s0(nVec, beta=1, m=None, useLessMemory=False):
-    """
-    Assumes nVec lists all possibilities ( len(nVec) = m )
+    """Assumes nVec lists all possibilities ( len(nVec) = m )
     
     Measured in nats (I think)
     """
     nVec = np.array(nVec)
-    N = sum(nVec)
-    numBins = len(nVec)
+    N = nVec.sum()
+    numBins = nVec.size
     if m is None:
-        m = numBins # aka K
+        m = numBins  # aka K
     factor1 = nVec+beta
-    factor2 = deltaPhi(1,nVec+beta+1,N+beta*m+2)
+    factor2 = deltaPhi(1, nVec+beta+1, N+beta*m+2)
     factor1zero = beta
-    factor2zero = deltaPhi(1,beta+1,N+beta*m+2)
+    factor2zero = deltaPhi(1, beta+1, N+beta*m+2)
     if (m > 1e4) or useLessMemory or m!=numBins:
         # use different (slower?) method that uses
         # less memory
         total = 0
-        p2 = Phi(2,N+beta*m+2)
+        p2 = Phi(2, N+beta*m+2)
         for i in range(numBins):
-            sumVec = np.dot(factor1[i],factor1)*             \
-                   ( np.dot(factor2[i],factor2) - p2 )
+            sumVec = np.dot(factor1[i], factor1) * (np.dot(factor2[i], factor2) - p2)
             # remove diagonal
             sumVec[i] = 0.
             total += np.sum(sumVec)
             # 7.19.2011 take into account extra zeros
-            sumVecZeros = 2.*(m-numBins)*factor1[i]*factor1zero*\
+            sumVecZeros = 2. * (m-numBins)*factor1[i]*factor1zero * \
                           (factor2[i]*factor2zero - p2)
             total += sumVecZeros
         # add zero-zero elements (except diagonal)
-        total += (m-numBins)*((m-numBins)-1)*                   \
-                 factor1zero*factor1zero*                       \
-                (factor2zero*factor2zero - p2)
+        total += (m-numBins)*((m-numBins)-1) * factor1zero*factor1zero * (factor2zero*factor2zero - p2)
         # add zero-zero diagonal elements
-        total += (m-numBins)*factor1zero*(factor1zero+1)*       \
-                 ( deltaPhi(1,beta+2,N+beta*m+2)**2             \
-                + deltaPhi(2,beta+2,N+beta*m+2) )
-                
+        total += ((m-numBins)*factor1zero*(factor1zero+1) *
+                  ( deltaPhi(1, beta+2, N+beta*m+2)**2 + deltaPhi(2, beta+2, N+beta*m+2) ))
     else:
-        sumMatrix = np.outer(factor1,factor1)*               \
-            ( np.outer(factor2,factor2)-Phi(2,N+beta*m+2) )
+        sumMatrix = np.outer(factor1, factor1) * ( np.outer(factor2, factor2)-Phi(2, N+beta*m+2) )
         # remove diagonal
         sumMatrix = sumMatrix - np.diag(np.diag(sumMatrix))
-        total = np.sum(sumMatrix)
+        total = sumMatrix.sum()
     
-    diagonal = factor1*(factor1+1)*                             \
-        ( deltaPhi(1,nVec+beta+2,N+beta*m+2)**2                 \
-        + deltaPhi(2,nVec+beta+2,N+beta*m+2) )
+    diagonal = (factor1 * (factor1+1) *
+                (deltaPhi(1, nVec+beta+2, N+beta*m+2)**2 + deltaPhi(2, nVec+beta+2, N+beta*m+2)))
     #sumMatrix += np.diag(diagonal)
-    total += np.sum(diagonal)
-        
-    return total / ( (N+beta*m)*(N+beta*m+1) )
+    total += diagonal.sum()
+
+    return total / ((N+beta*m) * (N+beta*m+1))
 
 # 10.25.2010
-def varianceEntropy(nVec,beta=1):
+def varianceEntropy(nVec, beta=1):
     """
     Assumes nVec lists all possibilities ( len(nVec) = m )
     
@@ -217,7 +209,7 @@ def xiFromBeta(beta, K):
     -------
     float
     """
-    oddMultiplier = (beta > 0.)*2 - 1
+    oddMultiplier = (beta > 0.) * 2 - 1
     beta = abs(beta)
     kappa = K * beta
     xi = polygamma(0, kappa+1) - polygamma(0, beta+1)
@@ -276,7 +268,7 @@ def lnXiDistrib(xi, nVec, K=None):
 def integrateOverXi(func, nVec,
                     maxScaledXi=0.9999,
                     constMult=True,
-                    range=None,
+                    bds=None,
                     K=None,
                     verbose=False):
     """
@@ -293,10 +285,10 @@ def integrateOverXi(func, nVec,
     """
     if K is None:
         K = nVec.size
-    if range is None:
+    if bds is None:
         mn, mx = 0., maxScaledXi * np.log(K)
     else:
-        mn, mx = range
+        mn, mx = bds
     if constMult:
         # use average LnXi
         #fn = lambda xi: lnXiDistrib(xi,nVec)
@@ -328,7 +320,8 @@ def integrateOverXi(func, nVec,
     exp_const = np.nanmax([(lnConst + lnXiDistrib(xi, nVec, K=K)) for xi in np.linspace(mn, mx, 100)])
     result = quad(lambda xi: integrand(xi, -exp_const), mn, mx,
                   limit=100,
-                  epsabs=1e-10)
+                  epsabs=0.,
+                  epsrel=1e-12)
     # re-introduce missing factor
     result = result[0]*np.exp(exp_const), result[1]*np.exp(exp_const)
     return result
@@ -376,20 +369,18 @@ def s2s0Nem(nVec, K=None, verbose=False, **kwargs):
     float
     """
     nVec = np.array(nVec)
-    N = sum(nVec)
+    N = nVec.sum()
     if K is None:
-        K = len(nVec) # aka m
-    s2s0Func =                                                  \
-        lambda xi: s2s0(nVec,beta=betaFromXi(xi,K),m=K)
+        K = nVec.size  # aka m
+    s2s0Func = lambda xi: s2s0(nVec, beta=betaFromXi(xi, K), m=K)
     numInt = integrateOverXi(s2s0Func, nVec, K=K, verbose=verbose, **kwargs)
     denInt = integrateOverXi(lambda x:1, nVec, K=K, verbose=verbose, **kwargs)
-    num,den = numInt[0],denInt[0]
+    num, den = numInt[0], denInt[0]
     if verbose:
         print("num =", num, ",  den =", den)
         print("numAbsErr =", numInt[1], ",  denAbsErr =", denInt[1])
         print("s2s0 =", num/den)
     return num/den
-    
     
 def meanAndStdevEntropyNem(freqData, bits=True, **kwargs):
     mean = meanEntropyNem(freqData, **kwargs)
