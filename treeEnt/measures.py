@@ -10,12 +10,17 @@ from threadpoolctl import threadpool_limits
 from multiprocess import Pool
 import pickle
 
+# set the dimension of the spin; in the Ising model on up/down states are allowed
+SPIN_STATE_SPACE = 2
+
 
 class TreeEntropy():
     def __init__(self, adj, model,
                  sample_size=10_000,
                  cond_sample_size=10_000,
                  mx_cluster_size=14,
+                 burn_in=None,
+                 n_iters=None,
                  iprint=True):
         """Use factorization of tree coarse-graining of graph to approximate the
         entropy of a sparse Ising model.
@@ -32,6 +37,11 @@ class TreeEntropy():
             MC sample size once having conditioned on upper branch to sample from
             leaf.
         mx_cluster_size : int, 14
+        burn_in : int, None
+            Number of MCMC steps to burn in sampler before sampling. Default is
+            n*1000.
+        n_iters : int, None
+            Number of MCMC steps to take between samples. Default is n*100.
         iprint : bool, True
         """
         
@@ -43,6 +53,9 @@ class TreeEntropy():
         self.sample_size = sample_size
         self.cond_sample_size = cond_sample_size
         self.iprint = iprint
+
+        self.burn_in = burn_in if not burn_in is None else self.model.n*1000
+        self.n_iters = n_iters if not n_iters is None else self.model.n*100
         
         self.setup_graph(mx_cluster_size)
         if self.iprint:
@@ -243,23 +256,20 @@ class TreeEntropy():
             this = np.ones(self.model.n)
             this[ix_hold] = this_sub
 
-            # sample prob distribution of free spins given held spins
-            assert self.model.multipliers.size==((self.model.n+1)*self.model.n//2)
-            
             # sample from Ising model while holding this_sub spins fixed at this state
             fixed_subset = list(zip(ix_hold, this[ix_hold]))
             self.model.sampler.generate_cond_sample(self.sample_size, fixed_subset,
-                                                      burn_in=self.model.n*1000,
-                                                      n_iters=self.model.n*100,
+                                                      burn_in=self.burn_in,
+                                                      n_iters=self.n_iters,
                                                       parallel=False)
             hold_sample = self.model.sampler.sample
             
-            # p_free[((cond_states+1)//2).dot(2**np.arange(n))] += p * cond_p
+            # p_free[((cond_states+1)//2).dot(SPIN_STATE_SPACE**np.arange(n))] += p * cond_p
             # iterate over all subsets that remain free upon this conditioning
             S_free = np.zeros((len(ix_free), 3))
             for i, ix in enumerate(ix_free):
                 #n_free = len(ix)
-                #p_free = np.zeros(2**n_free)
+                #p_free = np.zeros(SPIN_STATE_SPACE**n_free)
                 S_est = (NSB_estimate(hold_sample[:,ix]) if not fast
                                                               else self.naive_estimate(hold_sample[:,ix]))
 
@@ -426,8 +436,8 @@ class TreeEntropy():
         # Generate large sample from Ising model
         n = self.model.n
         self.model.generate_sample(n*100, n*1000,
-                                          multipliers=self.model.multipliers,
-                                          sample_size=self.sample_size)
+                                   multipliers=self.model.multipliers,
+                                   sample_size=self.sample_size)
         sample = self.model.sample
         
         # iterate thru each connected component and compute its entropy
@@ -498,7 +508,7 @@ class TreeEntropy():
         n = self.model.n
 
         if model.sample.shape[0]<sample_size or force_resample:
-            model.generate_sample(sample_size=sample_size, n_iters=n*100, burn_in=n*1000)
+            model.generate_sample(sample_size=sample_size, n_iters=self.n_iters, burn_in=self.burn_in)
 
         p = np.unique(model.sample[:sample_size], axis=0, return_counts=True)[1]
         p = p/p.sum()
@@ -560,7 +570,7 @@ def NSB_estimate(X):
     # this causes an exception case of two observed states so skip K argument in that case
     if counts.size==2:
         estimate = _NSB_entropy(counts, bits=True)
-    estimate = _NSB_entropy(counts, bits=True, K=2**X.shape[1])
+    estimate = _NSB_entropy(counts, bits=True, K=SPIN_STATE_SPACE**X.shape[1])
 
     # in the case of numerical errors in the integration of the prior, we should not specify K
     if estimate[0]>X.shape[1]:
