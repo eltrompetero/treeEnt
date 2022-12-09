@@ -33,8 +33,8 @@ def test_constraint(G):
     return c, nx_c
 
 def test_hairy_triangle_and_point(J_scale=.5):
-    """Setup a model instance with triangle and outgoing nodes and
-    a single independent point.
+    """Setup a model instance with triangle and outgoing nodes and a single
+    independent point.
 
     Parameters
     ----------
@@ -153,6 +153,36 @@ def test_n_hairy_triangles(n_tri, J_scale=.5, chain=False, **treeEnt_kw):
     return (entropyEstimator.entropy(),
             S_naive,
             NSB_entropy(counts, bits=True, K=2**model.n))
+
+def exact_hairy_triangle_entropy(J_scale):
+    """Exact entropy calculation of the hairy triangle using enumeration of all
+    possible configurations.
+    
+    Parameters
+    ----------
+    J_scale : float
+        Scale on couplings, i.e. inverse temperature.
+        
+    Returns
+    -------
+    float
+        Entropy in bits.
+    """
+    n = 6
+
+    # set up first triangle and then replicate it
+    Jmat = np.zeros((n, n))
+    Jmat[0,1] = 1
+    Jmat[0,2] = 1
+    Jmat[0,3] = 1
+    Jmat[1,2] = 1
+    Jmat[1,4] = 1
+    Jmat[2,5] = 1
+
+    model = Ising(np.array([0]*n + Jmat[np.triu_indices_from(Jmat, k=1)].tolist()) * J_scale * 1.)
+    p = model.calc_p()
+
+    return -p.dot(np.log2(p))
 
 if __name__=='__main__':
     for seed in range(20):
