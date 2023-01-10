@@ -1,6 +1,15 @@
 # TreeEnt: Estimating the entropy of factorizable graphs
 
-TreeEnt is a Python project for estimating the entropy of probabilistic graph models by leveraging bridges between communities and a good estimator of entropy on sparse samples. We show that using the structural constraint provides a good heuristic for identifying these bridges and partitioning the graph into conditionally independent copmonents. We combine this heuristic with the Nemenman-Shafee-Bialek estimator for entropy to obtain a faster and more accurate estimator and demonstrate its application to the pairwise maximum entropy, or Ising, model. The calculation can be extended to other models with a straightforward modification of the code when the graph structure, such as that given by interactions in an Ising model, are known and a model sampler is given. We demonstrate an application of this algorithm to estimate the entropy of judicial voting models of moderate size ($N=47$ and $N=23$), where entropy estimates without leveraging the graph structure are poor.
+We introduce an algorithm for estimating the entropy of pairwise, probabilistic graph models by leveraging
+bridges between social communities and an accurate entropy estimator on sparse samples. We propose using a
+measure of investment from the sociological literature, Burt's structural constraint, as a heuristic for
+identifying bridges that partition a graph into conditionally independent components. We combine this
+heuristic with the Nemenman-Shafee-Bialek entropy estimator to obtain a faster and more accurate estimator. We
+demonstrate it on the pairwise maximum entropy, or Ising, models of judicial voting, to improve na\"{i}ve
+entropy estimates. We use our algorithm to estimate the partition function closely, which we then apply to the
+problem of model selection, where estimating the likelihood is difficult. This serves as an improvement over
+existing methods that rely on point correlation functions to test fit can be extended to other graph models
+with a straightforward modification of the open-source implementation.
 
 For additional background, see the arXiv preprint: [arxiv.org]
 
