@@ -1,4 +1,4 @@
-# TreeEnt: Estimating the entropy of factorizable graphs
+# Closely estimating the entropy of factorizable graph models
 
 We introduce an algorithm for estimating the entropy of pairwise, probabilistic graph models by leveraging
 bridges between social communities and an accurate entropy estimator on sparse samples. We propose using a
