@@ -32,6 +32,22 @@ def test_constraint(G):
             c[node] = np.nan
     return c, nx_c
 
+def test_weighted_constraint(G=None):
+    np.random.seed(0)
+
+    if G is None:
+        G = nx.random_graphs.fast_gnp_random_graph(10, .2, 0)
+
+    for edge in G.edges:
+        G.add_edge(*edge, weight=np.random.rand())
+
+    my_con = TreeEntropy.constraint(G, weights='weight')
+    nx_con = nx.constraint(G, weight='weight')
+
+    for k in my_con.keys():
+        if not np.isnan(my_con[k]):
+            assert np.isclose(my_con[k], nx_con[k]), k
+
 def test_hairy_triangle_and_point(J_scale=.5):
     """Setup a model instance with triangle and outgoing nodes and a single
     independent point.

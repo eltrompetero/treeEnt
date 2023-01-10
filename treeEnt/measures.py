@@ -21,7 +21,8 @@ class TreeEntropy():
                  mx_cluster_size=14,
                  burn_in=None,
                  n_iters=None,
-                 iprint=True):
+                 iprint=True,
+                 resistance=False):
         """Use factorization of tree coarse-graining of graph to approximate the
         entropy of a sparse Ising model.
 
@@ -43,8 +44,10 @@ class TreeEntropy():
         n_iters : int, None
             Number of MCMC steps to take between samples. Default is n*100.
         iprint : bool, True
+        resistance : bool, False
+            If True, use effective resistance as edge weights instead of assuming
+            uniform weights.
         """
-        
         assert (adj[np.diag_indices_from(adj)]==0).all()
 
         # obtain connectivity graph
@@ -57,16 +60,28 @@ class TreeEntropy():
         self.burn_in = burn_in if not burn_in is None else self.model.n*1000
         self.n_iters = n_iters if not n_iters is None else self.model.n*100
         
-        self.setup_graph(mx_cluster_size)
+        self.setup_graph(mx_cluster_size, resistance)
         if self.iprint:
             print("After splitting, subgraphs are of sizes", [len(g) for g in self.subgraphs])
             print()
     
-    def setup_graph(self, mx_cluster_size):
+    def setup_graph(self, mx_cluster_size, resistance=False):
         """Wrapper for setting up self.G.
+
+        Parameters
+        ----------
+        resistance : bool, False
+            If True, set edge weights to be the resistance distance.
         """
         self.G = nx.Graph(self.adj)
-        split_output = self.split_graph(self.G, True, mx_cluster_size)
+        if resistance:
+            G_res = nx.Graph()
+            for edge in self.G.edges:
+                G_res.add_edge(*edge, weight=nx.resistance_distance(self.G, *edge))
+            self.G = G_res
+            split_output = self.split_graph(self.G, True, mx_cluster_size, weights='weight')
+        else:
+            split_output = self.split_graph(self.G, True, mx_cluster_size)
         self.subgraphs, (self.split_nodes, self.nonsplit_nodes) = split_output
 
         if any([len(g) > mx_cluster_size for g in self.subgraphs]):
@@ -113,7 +128,7 @@ class TreeEntropy():
         return contracted_G, node_sets
 
     @classmethod
-    def split_graph(cls, G, return_as_split=False, mx_cluster_size=14):
+    def split_graph(cls, G, return_as_split=False, mx_cluster_size=14, weights=None):
         """Remove structural holes til graph consists of sufficiently small
         components.
         
@@ -123,6 +138,7 @@ class TreeEntropy():
         return_as_split : bool, False
             If True, also return graphs groups into split and nonsplit.
         mx_cluster_size : int, 14
+        weights : str, None
         
         Returns
         -------
@@ -146,7 +162,7 @@ class TreeEntropy():
         largest_subgraph_growing = False
         while mx_size > mx_cluster_size and not largest_subgraph_growing:
             # remove one node at a time from the graph using min constraint heuristic
-            cons = cls.constraint(G_)
+            cons = cls.constraint(G_, weights)
             toremove = min(cons, key=cons.get)
             G_.remove_node(toremove)
             removed_node.append(toremove)
@@ -516,24 +532,53 @@ class TreeEntropy():
         return -p.dot(np.log2(p))
 
     @staticmethod
-    def constraint(G):
+    def constraint(G, weights=None):
         """Burt's structural constraint for each node in G.
         
         Parameters
         ----------
         G : nx.Graph
+        weights : str
+            Name of edge property that contains weight info.
         
         Returns
         -------
         dict
         """
+        if weights is None:
+            # calculate local constraint for every node
+            lc = {}
+            for node in G.nodes():
+                for n_node in G.neighbors(node):
+                    indirect = sum([1/len(G.adj[nn_node])
+                                    for nn_node in nx.common_neighbors(G, node, n_node)])
+                    lc[(node,n_node)] = (1 + indirect)**2 / len(G.adj[node])**2
+
+            # calculate total constraint
+            c = {}
+            for node in G.nodes():
+                terms = [lc[(node,n_node)] for n_node in G.neighbors(node)]
+                if len(terms):
+                    c[node] = sum(terms)
+                else:
+                    c[node] = np.nan
+            return c
+        
+        # normalization for the weights for any given node
+        norm = {}
+        for node in G.nodes():
+            norm[node] = sum([G.get_edge_data(node, n)[weights] for n in G.neighbors(node)])
+
         # calculate local constraint for every node
         lc = {}
         for node in G.nodes():
             for n_node in G.neighbors(node):
-                indirect = sum([1/len(G.adj[nn_node])
-                                for nn_node in nx.common_neighbors(G, node, n_node)])
-                lc[(node,n_node)] = (1 + indirect)**2 / len(G.adj[node])**2
+                indirect = []
+                for nn_node in nx.common_neighbors(G, node, n_node):
+                    indirect.append((G.get_edge_data(n_node, nn_node)[weights] / norm[nn_node] * 
+                                     G.get_edge_data(node, nn_node)[weights] / norm[node]))
+                indirect = sum(indirect)
+                lc[(node,n_node)] = (G.get_edge_data(node, n_node)[weights] / norm[node] + indirect)**2
 
         # calculate total constraint
         c = {}
