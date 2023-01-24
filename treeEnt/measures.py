@@ -97,11 +97,15 @@ class TreeEntropy():
         G : nx.Graph, None
             Default is self.G.
         subgraphs : list of lists of ints, None
+            Indicates the nodes that belong together into subgraphs.
 
         Returns
         -------
         list of nx.Graph
+            Set of subgraphs.
         dict
+            Node sets. Key is label for subgraph and values are the nodes that belong
+            to it.
         """
 
         G = G if not G is None else self.G
@@ -210,6 +214,43 @@ class TreeEntropy():
         if return_as_split:
             return subgraphs, (split_nodes, nonsplit_nodes)
         return subgraphs
+    
+    def resplit_subgraphs(self):
+        """Find internal sets of nodes within large subgraphs, i.e. ones that are
+        only connected to other nodes within the subgraph and not outside. These are
+        a good subset for further breaking up the sampling problem since they can be
+        conditioned on (or out).
+
+        Redefines self.subgraphs, self.contracted_G, self.node_sets but not
+        split_nodes and nonsplit_nodes.
+        """
+        n_subgraphs = len(self.subgraphs)
+        first_time = True
+        
+        # keep iterating while the number of subgraphs is changing
+        while n_subgraphs!=len(self.subgraphs) or first_time:
+            n_subgraphs = len(self.subgraphs)
+            first_time = False
+            G = self.G
+
+            new_clusters = []
+            for cluster in self.subgraphs:
+                if len(cluster)>9:
+                    # identify the nodes that have no connections outside this subset, i.e.
+                    # the ones that are "Markov blanket-ed"
+                    internal_nodes = []
+                    for this_n in cluster:
+                        if all([i in cluster for i in G.neighbors(this_n)]):
+                            internal_nodes.append(this_n)
+
+                    if len(internal_nodes):
+                        # move these nodes into their own cluster
+                        new_clusters.append(internal_nodes)
+                        [cluster.pop(cluster.index(this_n)) for this_n in internal_nodes]
+            self.subgraphs += new_clusters
+
+        # reconstruct contracted graph
+        self.contracted_G, self.node_sets = self.contract_G()
     
     def conditional_entropy(self, G, X, ix_hold, ix_free,
                             fast=False,
